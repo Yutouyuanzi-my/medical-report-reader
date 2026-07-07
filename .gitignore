@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+venv/
+
+# Streamlit 本地密钥（绝不提交）
+.streamlit/secrets.toml
+
+# 运行日志
+streamlit.log
+*.log
+
+# macOS
+.DS_Store
+
+# WorkBuddy 项目元数据
+.workbuddy/
+
+# 临时文件
+*.tmp
+*.swp

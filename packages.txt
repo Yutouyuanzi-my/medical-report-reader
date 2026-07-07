@@ -1,0 +1,4 @@
+# Streamlit Cloud 系统依赖（Linux apt-get install）
+# 图片 OCR 需要 tesseract + 中文语言包
+tesseract-ocr
+tesseract-ocr-chi-sim

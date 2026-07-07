@@ -1,0 +1,9 @@
+requests
+streamlit
+plotly
+numpy
+pandas
+pdfplumber
+python-docx
+pytesseract
+Pillow
