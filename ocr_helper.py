@@ -10,6 +10,13 @@ import subprocess
 import json
 import sys
 
+# 顶层导入，避免首次上传 PDF 时内部 import 触发 Streamlit 脚本超时
+# pdfplumber 首次编译 import 可能耗时 30s+，顶层导入在启动时完成一次即可缓存
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None  # type: ignore
+
 
 # ============================================================
 # macOS Vision OCR（JXA 脚本）
@@ -112,9 +119,7 @@ def _ocr_tesseract(file_path: str) -> dict:
 
 def extract_from_pdf(file_path: str) -> dict:
     """从 PDF 中提取文字"""
-    try:
-        import pdfplumber
-    except ImportError:
+    if pdfplumber is None:
         return {"error": "pdfplumber 未安装，请运行：pip install pdfplumber"}
 
     try:

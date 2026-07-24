@@ -25,3 +25,7 @@ streamlit.log
 # 临时文件
 *.tmp
 *.swp
+
+# 用户体检报告（隐私，绝不提交）
+*.pdf
+6e707845fe921566ad6a02ccb6bdfca0_副本.pdf

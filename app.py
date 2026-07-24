@@ -881,24 +881,39 @@ with col2:
         st.rerun()
 
     if st.session_state.analyzing:
-        # ---- Agent 多步推理展示 ----
+        # ---- Agent 进度展示（进度条 + 流式输出）----
         progress = st.progress(0, text="🤖 Agent 启动中...")
-        step_container = st.container()
+
+        # 流式输出实时区域：展示 Agent 正在生成的内容
+        live_area = st.empty()
+        live_text = []
+
+        def on_token_callback(text: str):
+            live_text.append(text)
+            # 只显示最近 800 字符，避免容器过长
+            recent = "".join(live_text)[-800:]
+            live_area.markdown(
+                f'<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;'
+                f'color:#7a7a7a;background:#f7f8fa;border:1px solid #e8eaed;border-radius:8px;'
+                f'padding:10px 12px;max-height:160px;overflow:auto;white-space:pre-wrap;'
+                f'line-height:1.5;">🤖 正在生成解读…<br>{_esc(recent)}</div>',
+                unsafe_allow_html=True,
+            )
 
         agent_steps_log = []
 
-        def on_step_callback(step_num, step_name, status):
-            agent_steps_log.append({"step": step_num, "name": step_name, "status": status})
-            pct = int(step_num / 4 * 100)
-            progress.progress(pct, text=f"Step {step_num}/4: {step_name} — {status}")
-            with step_container:
-                st.markdown(f"**Step {step_num} · {step_name}** → {status}")
+        def on_step_callback(phase, desc, detail):
+            agent_steps_log.append({"phase": phase, "desc": desc, "detail": detail})
+            # 动态进度：前 2 轮 30%，之后逐步到 90%，完成时 100%
+            pct = min(90, 15 + phase * 12)
+            progress.progress(pct, text=f"🤖 {desc}")
 
         try:
             if st.session_state.use_agent:
                 result = interpret_report_agent(
                     st.session_state.report_text.strip(),
                     on_step=on_step_callback,
+                    on_token=on_token_callback,
                 )
             else:
                 progress.progress(50, text="AI 正在分析报告...")
@@ -1186,30 +1201,11 @@ with col2:
                                     <b>📅 复查建议：</b>{review}
                                 </div>""", unsafe_allow_html=True)
 
-                            # 该指标相关的就医提醒
-                            indicator_alerts = [
-                                a for a in alerts
-                                if indicator_name[:2] in a or a[:2] in indicator_name
-                            ]
-                            if indicator_alerts:
+                            # 该指标相关的就医提醒（只显示该指标专属的）
+                            indicator_alert = item.get("就医提醒", "").strip()
+                            if indicator_alert:
                                 st.markdown("<b>🏥 就医提醒：</b>", unsafe_allow_html=True)
-                                for a in indicator_alerts:
-                                    st.warning(f"🏥 {a}")
-                            elif alerts:
-                                st.markdown("<b>🏥 就医提醒：</b>", unsafe_allow_html=True)
-                                for a in alerts[:2]:
-                                    st.warning(f"🏥 {a}")
-
-                            # 全局术语（如果有相关的话）
-                            if global_terms:
-                                st.markdown("<b>🔤 报告通用术语：</b>", unsafe_allow_html=True)
-                                term_items = list(global_terms.items())
-                                for k, v in term_items[:5]:
-                                    st.markdown(
-                                        f'<span class="term-badge">{k}</span>'
-                                        f'<span style="color:#888;font-size:13px;"> → {v}</span>',
-                                        unsafe_allow_html=True,
-                                    )
+                                st.warning(f"🏥 {indicator_alert}")
 
                             # 定位原文（解读-原文联动）
                             st.markdown("<br>", unsafe_allow_html=True)
@@ -1290,14 +1286,50 @@ with col2:
 
             # ---- Agent 推理过程（可折叠）----
             agent_steps = result.get("agent_steps", []) or st.session_state.agent_steps_display
+            tool_calls = result.get("tool_calls", [])
             if agent_steps and not search_query:
-                with st.expander("🤖 Agent 推理过程", expanded=False):
+                with st.expander(f"🤖 Agent 推理过程{'（含 ' + str(len(tool_calls)) + ' 次工具调用）' if tool_calls else ''}", expanded=False):
+                    # 推理步骤
                     for s in agent_steps:
-                        step_num = s.get("step", "?")
-                        name = s.get("name", "")
-                        status = s.get("status", "")
-                        st.markdown(f"**Step {step_num} · {name}**")
-                        st.caption(status)
+                        phase = s.get("phase", s.get("step", "?"))
+                        desc = s.get("desc", s.get("name", ""))
+                        detail = s.get("detail", s.get("status", ""))
+                        icon = "🔧" if "工具" in desc else "📋" if "返回" in desc else "✅" if "完成" in desc or "输出" in desc else "🔄"
+                        st.markdown(f"{icon} **[{phase}] {desc}**")
+                        if detail:
+                            st.caption(detail[:200])
+
+                    # 工具调用详情（Agent 核心亮点）
+                    if tool_calls:
+                        st.divider()
+                        st.markdown("#### 🔧 工具调用详情")
+                        for i, tc in enumerate(tool_calls, 1):
+                            tool_name = tc.get("tool", "?")
+                            args = tc.get("args", {})
+                            res = tc.get("result", {})
+                            args_str = json.dumps(args, ensure_ascii=False)
+                            # 工具结果摘要
+                            if "error" in res:
+                                res_summary = f"❌ {res['error']}"
+                            elif tool_name == "calculate_egfr":
+                                res_summary = f"eGFR = {res.get('egfr', '?')} {res.get('unit', '')} → {res.get('stage', '')}"
+                            elif tool_name == "convert_unit":
+                                res_summary = f"{res.get('original', '?')} → {res.get('converted', '?')}"
+                            elif tool_name == "lookup_reference":
+                                res_summary = f"参考范围: {res.get('range', '?')} {res.get('unit', '')}（{res.get('note', '')}）"
+                            elif tool_name == "assess_severity":
+                                res_summary = f"偏离 {res.get('deviation_pct', '?')}% → {res.get('severity', '?')}"
+                            else:
+                                res_summary = json.dumps(res, ensure_ascii=False)[:100]
+
+                            st.markdown(
+                                f"<div style='background:#f0f7ff;border-left:3px solid #2196F3;padding:8px 12px;margin:6px 0;border-radius:4px;'>"
+                                f"<b style='color:#1565C0;'>🔧 {tool_name}</b><br>"
+                                f"<span style='color:#666;font-size:13px;'>📤 入参: {args_str}</span><br>"
+                                f"<span style='color:#2E7D32;font-size:13px;'>📥 结果: {res_summary}</span>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
 
                     check = result.get("check_report", {})
                     if check:
@@ -1306,8 +1338,6 @@ with col2:
                         st.markdown(f"**自检结果：** {'✅ 通过' if passed else '⚠️ 有修正'}")
                         if check.get("missing"):
                             st.warning(f"遗漏指标：{', '.join(check['missing'])}")
-                        if check.get("severity_fixes"):
-                            st.info(f"严重程度修正：{check['severity_fixes']} 处")
                         if check.get("compliance_issues"):
                             st.warning(f"合规修正：{', '.join(check['compliance_issues'][:3])}")
                         if check.get("summary"):
